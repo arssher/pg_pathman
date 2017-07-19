@@ -3,7 +3,7 @@
 MODULE_big = pg_pathman
 
 # versions of postgresql with declarative partitioning
-DECL_CHECK_VERSIONS = 10beta1
+DECL_CHECK_VERSIONS = 10beta1 10beta2
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
