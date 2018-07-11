@@ -9,6 +9,7 @@ RUN apk add --no-cache \
 	coreutils linux-headers \
 	make musl-dev gcc bison flex \
 	zlib-dev libedit-dev \
+	vim gdb \
 	clang clang-analyzer;
 
 # Install fresh valgrind
@@ -34,7 +35,11 @@ RUN	chown -R postgres:postgres ${PGDATA} && \
 
 COPY run_tests.sh /run.sh
 RUN chmod 755 /run.sh
+RUN sh -c 'cd /pg/testdir; LEVEL=nightmare /run.sh'
+# RUN mkdir -p /pg/shared
+# RUN chown -R postgres:postgres /pg
 
 USER postgres
 WORKDIR /pg/testdir
-ENTRYPOINT LEVEL=${LEVEL} /run.sh
+# ENTRYPOINT LEVEL=${LEVEL} /run.sh
+ENTRYPOINT bash

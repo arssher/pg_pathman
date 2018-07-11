@@ -48,9 +48,23 @@ if [ "$LEVEL" = "hardcore" ] || \
 		CFLAGS='-O0 -ggdb3 -fno-omit-frame-pointer' \
 		--enable-cassert \
 		--prefix=$CUSTOM_PG_BIN \
-		--quiet
+		--quiet \
 
+                ./configure \
+                CFLAGS='-Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -O2 -g' \
+                --prefix=/pg/testdir/pg_bin \
+                '--build=x86_64-linux-musl' '--enable-integer-datetimes' '--enable-thread-safety' '--enable-tap-tests' '--disable-rpath' '--with-uuid=e2fs' '--with-gnu-ld' '--with-pgport=5432' '--with-system-tzdata=/usr/share/zoneinfo' '--prefix=/usr/local' '--with-includes=/usr/local/include' '--with-libraries=/usr/local/lib' '--with-openssl' '--with-libxml' '--with-libxslt' 'build_alias=x86_64-linux-musl'
+
+                ./configure \
+                CFLAGS='-Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -O2 -g' \
+                --prefix=/pg/testdir/pg_bin \
+                '--build=x86_64-linux-musl' '--enable-integer-datetimes' '--enable-thread-safety' '--disable-rpath' '--with-gnu-ld' '--with-pgport=5432' '--with-system-tzdata=/usr/share/zoneinfo' '--prefix=/usr/local' '--with-includes=/usr/local/include' '--with-libraries=/usr/local/lib'  'build_alias=x86_64-linux-musl'
+
+	
 	time make -s -j$(nproc) && make -s install
+	# fix permissions (handy if we want to build pathman ourselves)
+	chown -R postgres:postgres "${CUSTOM_PG_SRC}"
+	chown -R postgres:postgres "${CUSTOM_PG_BIN}"
 
 	# override default PostgreSQL instance
 	export PATH=$CUSTOM_PG_BIN/bin:$PATH
@@ -63,6 +77,9 @@ if [ "$LEVEL" = "hardcore" ] || \
 
 	set +e
 fi
+
+echo 'done'
+exit 0
 
 # show pg_config just in case
 pg_config
@@ -117,15 +134,16 @@ fi
 if [ $status -ne 0 ]; then cat /tmp/postgres.log; exit 1; fi
 
 # run regression tests
-export PG_REGRESS_DIFF_OPTS="-w -U3" # for alpine's diff (BusyBox)
-make USE_PGXS=1 installcheck || status=$?
+# export PG_REGRESS_DIFF_OPTS="-w -U3" # for alpine's diff (BusyBox)
+# make USE_PGXS=1 installcheck || status=$?
 
 # show diff if it exists
-if [ -f regression.diffs ]; then cat regression.diffs; fi
+# if [ -f regression.diffs ]; then cat regression.diffs; fi
 
 # run python tests
 set +x
 virtualenv /tmp/env && source /tmp/env/bin/activate && pip install testgres
+cd /pg/testdir/tests/python && python -m unittest  --verbose partitioning_test.Tests.test_conc_part_merge_insert
 make USE_PGXS=1 python_tests || status=$?
 deactivate
 set -x
@@ -156,3 +174,15 @@ set +ux
 
 # send coverage stats to Codecov
 bash <(curl -s https://codecov.io/bash)
+
+
+pkill -9 postgres
+cp -r /pg/testdir/* /pg/shared
+export PATH=/pg/testdir/pg_bin/bin:$PATH
+export PATH=/usr/local/bin:$PATH
+cd /pg/testdir/ && make USE_PGXS=1 clean && make USE_PGXS=1 -j4 install
+rm -rf /tmp/data0/*; initdb /tmp/data0/
+echo "shared_preload_libraries='pg_pathman'" >> /tmp/data0/postgresql.conf
+pg_ctl -D /tmp/data0 start
+virtualenv /tmp/env && source /tmp/env/bin/activate && pip install testgres
+cd /pg/testdir/tests/python && python -m unittest  --verbose partitioning_test.Tests.test_conc_part_merge_insert
