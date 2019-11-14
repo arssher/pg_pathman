@@ -63,6 +63,7 @@ REGRESS = pathman_array_qual \
 		  pathman_utility_stmt \
 		  pathman_views
 
+REGRESS = pathman_inserts
 
 EXTRA_REGRESS_OPTS=--temp-config=$(top_srcdir)/$(subdir)/conf.add
 

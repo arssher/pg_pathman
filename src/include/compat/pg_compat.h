@@ -26,8 +26,15 @@
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "nodes/memnodes.h"
+#if PG_VERSION_NUM >= 120000
+#include "nodes/pathnodes.h"
+#else
 #include "nodes/relation.h"
+#endif
 #include "nodes/pg_list.h"
+#if PG_VERSION_NUM >= 120000
+#include "optimizer/appendinfo.h"
+#endif
 #include "optimizer/cost.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
@@ -232,7 +239,20 @@
 /*
  * create_append_path()
  */
-#if PG_VERSION_NUM >= 110000
+#if PG_VERSION_NUM >= 120000
+
+#ifndef PGPRO_VERSION
+#define create_append_path_compat(rel, subpaths, required_outer, parallel_workers) \
+	create_append_path(NULL, (rel), (subpaths), NIL, NIL, (required_outer), \
+					   (parallel_workers), false, NIL, -1)
+#else
+/* TODO pgpro version */
+#define create_append_path_compat(rel, subpaths, required_outer, parallel_workers) \
+	create_append_path(NULL, (rel), (subpaths), NIL, (required_outer), \
+					   (parallel_workers), false, NIL, -1, false, NIL)
+#endif /* PGPRO_VERSION */
+
+#elif PG_VERSION_NUM >= 110000
 
 #ifndef PGPRO_VERSION
 #define create_append_path_compat(rel, subpaths, required_outer, parallel_workers) \
@@ -794,7 +814,10 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 /*
  * MakeTupleTableSlot()
  */
-#if PG_VERSION_NUM >= 110000
+#if PG_VERSION_NUM >= 120000
+#define MakeTupleTableSlotCompat(tts_ops) \
+	MakeTupleTableSlot(NULL, (tts_ops))
+#elif PG_VERSION_NUM >= 110000
 #define MakeTupleTableSlotCompat() \
 	MakeTupleTableSlot(NULL)
 #else
@@ -877,6 +900,99 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 # define HeapTupleGetXminCompat(htup) HeapTupleHeaderGetXmin((htup)->t_data)
 #endif
 
+/*
+ * is_andclause
+ */
+#if PG_VERSION_NUM >= 120000
+#define is_andclause_compat(clause) is_andclause(clause)
+#else
+#define is_andclause_compat(clause) and_clause(clause)
+#endif
+
+/*
+ * GetDefaultTablespace
+ */
+#if PG_VERSION_NUM >= 12
+#define GetDefaultTablespaceCompat(relpersistence, partitioned) \
+	GetDefaultTablespace((relpersistence), (partitioned))
+#else
+#define GetDefaultTablespaceCompat(relpersistence, partitioned) \
+	GetDefaultTablespace((relpersistence))
+#endif
+
+/*
+ * CreateTemplateTupleDesc
+ */
+#if PG_VERSION_NUM >= 120000
+#define CreateTemplateTupleDescCompat(natts, hasoid) CreateTemplateTupleDesc(natts)
+#else
+#define CreateTemplateTupleDescCompat(natts, hasoid) CreateTemplateTupleDesc((natts), (hasoid))
+#endif
+
+/*
+ * addRangeTableEntryForRelation
+ */
+#if PG_VERSION_NUM >= 120000
+#define addRangeTableEntryForRelationCompat(pstate, rel, lockmode, alias, inh, inFromCl) \
+	addRangeTableEntryForRelation((pstate), (rel), (lockmode), (alias), (inh), (inFromCl))
+#else
+#define addRangeTableEntryForRelationCompat(pstate, rel, lockmode, alias, inh, inFromCl) \
+	addRangeTableEntryForRelation((pstate), (rel), (alias), (inh), (inFromCl))
+#endif
+
+/*
+ * nextCopyFrom
+ */
+#if PG_VERSION_NUM >= 120000
+#define NextCopyFromCompat(cstate, econtext, values, nulls, tupleOid) \
+	NextCopyFrom((cstate), (econtext), (values), (nulls))
+#else
+#define NextCopyFromCompat(cstate, econtext, values, nulls, tupleOid) \
+	NextCopyFrom((cstate), (econtext), (values), (tupleOid))
+#endif
+
+/*
+ * ExecInsertIndexTuples
+ */
+#if PG_VERSION_NUM >= 120000
+#define ExecInsertIndexTuplesCompat(slot, tupleid, estate, noDupError, specConflict, arbiterIndexes) \
+	ExecInsertIndexTuples((slot), (estate), (noDupError), (specConflict), (arbiterIndexes))
+#else
+#define ExecInsertIndexTuplesCompat(slot, tupleid, estate, noDupError, specConflict, arbiterIndexes) \
+	ExecInsertIndexTuples((slot), (tupleid), (estate), (noDupError), (specConflict), (arbiterIndexes))
+#endif
+
+/*
+ * RenameRelationInternal
+ */
+#if PG_VERSION_NUM >= 120000
+#define RenameRelationInternalCompat(myrelid, newname, is_internal, is_index) \
+	RenameRelationInternal((myrelid), (newname), (is_internal), (is_index))
+#else
+#define RenameRelationInternalCompat(myrelid, newname, is_internal, is_index) \
+	RenameRelationInternal((myrelid), (newname), (is_internal))
+#endif
+
+/*
+ *  getrelid
+ */
+#if PG_VERSION_NUM >= 120000
+#define getrelid(rangeindex,rangetable) \
+	(rt_fetch(rangeindex, rangetable)->relid)
+#endif
+
+/*
+ * AddRelationNewConstraints
+ */
+#if PG_VERSION_NUM >= 120000
+#define AddRelationNewConstraintsCompat(rel, newColDefaults, newConstrains, allow_merge, is_local, is_internal) \
+	AddRelationNewConstraints((rel), (newColDefaults), (newConstrains), (allow_merge), (is_local), (is_internal), NULL)
+#else
+#define AddRelationNewConstraintsCompat(rel, newColDefaults, newConstrains, allow_merge, is_local, is_internal) \
+	AddRelationNewConstraints((rel), (newColDefaults), (newConstrains), (allow_merge), (is_local), (is_internal))
+#endif
+
+
 
 /*
  * -------------
@@ -884,9 +1000,15 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
  * -------------
  */
 static inline TupleTableSlot *
+#if PG_VERSION_NUM >= 120000
+ExecInitExtraTupleSlotCompat(EState *s, TupleDesc t, const TupleTableSlotOps *tts_ops)
+#else
 ExecInitExtraTupleSlotCompat(EState *s, TupleDesc t)
+#endif
 {
-#if PG_VERSION_NUM >= 110000
+#if PG_VERSION_NUM >= 120000
+	return ExecInitExtraTupleSlot(s,t,tts_ops);
+#elif PG_VERSION_NUM >= 110000
 	return ExecInitExtraTupleSlot(s,t);
 #else
 	TupleTableSlot	*res = ExecInitExtraTupleSlot(s);

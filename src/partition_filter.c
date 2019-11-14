@@ -17,6 +17,9 @@
 #include "utils.h"
 
 #include "access/htup_details.h"
+#if PG_VERSION_NUM >= 120000
+#include "access/table.h"
+#endif
 #include "access/xact.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_type.h"
@@ -355,7 +358,12 @@ scan_result_parts_storage(ResultPartsStorage *parts_storage, Oid partid)
 		rri_holder->partid = partid;
 		rri_holder->result_rel_info = child_result_rel_info;
 
-		/* Generate tuple transformation map and some other stuff */
+		/*
+		 * Generate parent->child tuple transformation map. We need to
+		 * convert tuples because e.g. parent's TupleDesc might have dropped
+		 * columns which child doesn't have at all because it was created after
+		 * the drop.
+		 */
 		rri_holder->tuple_map = build_part_tuple_map(base_rel, child_rel);
 
 		/* Default values */
@@ -764,17 +772,28 @@ partition_filter_exec(CustomScanState *node)
 						htup_new;
 			Relation	child_rel = rri->ri_RelationDesc;
 
+			/* xxx why old code decided to materialize it? */
+#if PG_VERSION_NUM >= 120000
+			/* htup_old = ExecFetchSlotHeapTuple(slot, false, NULL); */
+			/* htup_new = execute_attr_map_tuple(htup_old, rri_holder->tuple_map); */
+#else
 			htup_old = ExecMaterializeSlot(slot);
 			htup_new = do_convert_tuple(htup_old, rri_holder->tuple_map);
 			ExecClearTuple(slot);
+#endif
 
 			/* Allocate new slot if needed */
 			if (!state->tup_convert_slot)
-				state->tup_convert_slot = MakeTupleTableSlotCompat();
+				state->tup_convert_slot = MakeTupleTableSlotCompat(&TTSOpsBufferHeapTuple);
 
 			/* TODO: why should we *always* set a new slot descriptor? */
 			ExecSetSlotDescriptor(state->tup_convert_slot, RelationGetDescr(child_rel));
+#if PG_VERSION_NUM >= 120000
+			/* slot = ExecStoreHeapTuple(htup_new, state->tup_convert_slot, true); */
+			slot = execute_attr_map_slot(rri_holder->tuple_map->attrMap, slot, state->tup_convert_slot);
+#else
 			slot = ExecStoreTuple(htup_new, state->tup_convert_slot, InvalidBuffer, true);
+#endif
 		}
 
 		return slot;
