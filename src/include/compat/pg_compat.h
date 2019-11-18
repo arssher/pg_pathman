@@ -952,7 +952,7 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 #endif
 
 /*
- * ExecInsertIndexTuples
+ * ExecInsertIndexTuples. Since 12 slot contains tupleid.
  */
 #if PG_VERSION_NUM >= 120000
 #define ExecInsertIndexTuplesCompat(slot, tupleid, estate, noDupError, specConflict, arbiterIndexes) \

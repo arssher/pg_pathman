@@ -505,7 +505,11 @@ PathmanCopyFrom(CopyState cstate, Relation parent_rel,
 	estate->es_result_relations = parent_rri;
 	estate->es_num_result_relations = 1;
 	estate->es_result_relation_info = parent_rri;
+#if PG_VERSION_NUM >= 120000
+	ExecInitRangeTable(estate, range_table);
+#else
 	estate->es_range_table = range_table;
+#endif
 
 	/* Initialize ResultPartsStorage */
 	init_result_parts_storage(&parts_storage,
@@ -649,6 +653,11 @@ PathmanCopyFrom(CopyState cstate, Relation parent_rel,
 			{
 				/* OK, now store the tuple... */
 				simple_heap_insert(child_rri->ri_RelationDesc, tuple);
+#if PG_VERSION_NUM >= 120000 /* since 12, tid lives directly in slot */
+				ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
+				/* and we must stamp tableOid as we go around table_tuple_insert */
+				slot->tts_tableOid = RelationGetRelid(child_rri->ri_RelationDesc);
+#endif
 
 				/* ... and create index entries for it */
 				if (child_rri->ri_NumIndices > 0)

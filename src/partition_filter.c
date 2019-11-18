@@ -185,10 +185,12 @@ init_result_parts_storage(ResultPartsStorage *parts_storage,
 	parts_storage->command_type = cmd_type;
 	parts_storage->speculative_inserts = speculative_inserts;
 
-	/* Should partitions be locked till transaction's end? */
+	/*
+	 * This is misnamed a bit: means should
+	 * ResultPartsStorage do ExecCloseIndices on finalization?
+	 */
 	parts_storage->close_relations = close_relations;
 	parts_storage->head_open_lock_mode  = RowExclusiveLock;
-	parts_storage->heap_close_lock_mode = NoLock;
 
 	/* Fetch PartRelationInfo for this partitioned relation */
 	parts_storage->prel = get_pathman_relation_info(parent_relid);
@@ -217,14 +219,14 @@ fini_result_parts_storage(ResultPartsStorage *parts_storage)
 		if (parts_storage->fini_rri_holder_cb)
 			parts_storage->fini_rri_holder_cb(rri_holder, parts_storage);
 
-		/* Close partitions and indices */
+		/* Close indices, if ExecEndPlan won't do that for us */
 		if (parts_storage->close_relations)
 		{
 			ExecCloseIndices(rri_holder->result_rel_info);
-
-			heap_close(rri_holder->result_rel_info->ri_RelationDesc,
-					   parts_storage->heap_close_lock_mode);
 		}
+		/* And relation itself */
+		heap_close(rri_holder->result_rel_info->ri_RelationDesc,
+				   NoLock);
 
 		/* Free conversion-related stuff */
 		if (rri_holder->tuple_map)
@@ -768,28 +770,31 @@ partition_filter_exec(CustomScanState *node)
 		/* If there's a transform map, rebuild the tuple */
 		if (rri_holder->tuple_map)
 		{
-			HeapTuple	htup_old,
-						htup_new;
 			Relation	child_rel = rri->ri_RelationDesc;
 
 			/* xxx why old code decided to materialize it? */
-#if PG_VERSION_NUM >= 120000
-			/* htup_old = ExecFetchSlotHeapTuple(slot, false, NULL); */
-			/* htup_new = execute_attr_map_tuple(htup_old, rri_holder->tuple_map); */
-#else
+#if PG_VERSION_NUM < 120000
+			HeapTuple	htup_old,
+						htup_new;
+
 			htup_old = ExecMaterializeSlot(slot);
 			htup_new = do_convert_tuple(htup_old, rri_holder->tuple_map);
 			ExecClearTuple(slot);
 #endif
 
-			/* Allocate new slot if needed */
+			/*
+			 * Allocate new slot if needed.
+			 * For 12, it is sort of important to create BufferHeapTuple,
+			 * though we will store virtual one there. Otherwise, ModifyTable
+			 * decides to copy it to mt_scans slot which has tupledesc of
+			 * parent.
+			 */
 			if (!state->tup_convert_slot)
 				state->tup_convert_slot = MakeTupleTableSlotCompat(&TTSOpsBufferHeapTuple);
 
 			/* TODO: why should we *always* set a new slot descriptor? */
 			ExecSetSlotDescriptor(state->tup_convert_slot, RelationGetDescr(child_rel));
 #if PG_VERSION_NUM >= 120000
-			/* slot = ExecStoreHeapTuple(htup_new, state->tup_convert_slot, true); */
 			slot = execute_attr_map_slot(rri_holder->tuple_map->attrMap, slot, state->tup_convert_slot);
 #else
 			slot = ExecStoreTuple(htup_new, state->tup_convert_slot, InvalidBuffer, true);
@@ -1174,6 +1179,28 @@ append_rte_to_estate(EState *estate, RangeTblEntry *rte)
 
 	/* Update estate_mod_data */
 	emd_struct->estate_not_modified = false;
+
+	/*
+	 * On PG >= 12, also add rte to es_range_table_array. This is horribly
+	 * inefficient and generally dubious, but...
+	 * At least in 12 es_range_table_array ptr is not saved anywhere in
+	 * core, so it is safe to repalloc.
+	 */
+#if PG_VERSION_NUM >= 120000
+	estate->es_range_table_size = list_length(estate->es_range_table);
+	estate->es_range_table_array = (RangeTblEntry **)
+		repalloc(estate->es_range_table_array,
+				 estate->es_range_table_size * sizeof(RangeTblEntry *));
+	estate->es_range_table_array[estate->es_range_table_size - 1] = rte;
+
+	/*
+	 * Also reallocate es_relations, because es_range_table_size defines its
+	 * len.
+	 */
+	estate->es_relations = (Relation *)
+		repalloc(estate->es_relations, estate->es_range_table_size * sizeof(Relation));
+	estate->es_relations[estate->es_range_table_size - 1] = NULL;
+#endif
 
 	return list_length(estate->es_range_table);
 }
