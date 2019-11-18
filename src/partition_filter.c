@@ -1191,7 +1191,7 @@ append_rte_to_estate(EState *estate, RangeTblEntry *rte, Relation child_rel)
 
 	/*
 	 * On PG >= 12, also add rte to es_range_table_array. This is horribly
-	 * inefficient and generally dubious, but...
+	 * inefficient, yes.
 	 * At least in 12 es_range_table_array ptr is not saved anywhere in
 	 * core, so it is safe to repalloc.
 	 */
@@ -1204,7 +1204,7 @@ append_rte_to_estate(EState *estate, RangeTblEntry *rte, Relation child_rel)
 
 	/*
 	 * Also reallocate es_relations, because es_range_table_size defines its
-	 * len. This also ensures ExecEndPlan will close it.
+	 * len. This also ensures ExecEndPlan will close the rel.
 	 */
 	estate->es_relations = (Relation *)
 		repalloc(estate->es_relations, estate->es_range_table_size * sizeof(Relation));

@@ -30,6 +30,7 @@
 #include "access/table.h"
 #endif
 #include "access/xact.h"
+#include "catalog/pg_collation.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_extension.h"
@@ -1084,9 +1085,14 @@ handle_const(const Const *c,
 				}
 				/* Else use the Const's value */
 				else value = c->constvalue;
-
-				/* Calculate 32-bit hash of 'value' and corresponding index */
-				hash = OidFunctionCall1(prel->hash_proc, value);
+				/*
+				 * Calculate 32-bit hash of 'value' and corresponding index.
+				 * Since 12, hashtext requires valid collation. Since we never
+				 * supported this, passing db default one will do.
+				 */
+				hash = OidFunctionCall1Coll(prel->hash_proc,
+											DEFAULT_COLLATION_OID,
+											value);
 				idx = hash_to_part_index(DatumGetInt32(hash),
 										 PrelChildrenCount(prel));
 

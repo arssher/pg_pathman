@@ -1880,7 +1880,7 @@ text_to_regprocedure(text *proc_signature)
 	fcinfo->argnull[0] = false;
 #else
 	fcinfo->arg[0] = CStringGetDatum(text_to_cstring(proc_signature));
-	fcinfo.argnull[0] = false;
+	fcinfo->argnull[0] = false;
 #endif
 
 	result = to_regprocedure(fcinfo);
