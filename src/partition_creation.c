@@ -992,7 +992,11 @@ postprocess_child_table_and_atts(Oid parent_relid, Oid partition_relid)
 
 	/* Search for 'partition_relid' */
 	ScanKeyInit(&skey[0],
+#if PG_VERSION_NUM >= 120000
 				Anum_pg_class_oid,
+#else
+				ObjectIdAttributeNumber,
+#endif
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(partition_relid));
 
@@ -1785,8 +1789,13 @@ invoke_init_callback_internal(init_callback_params *cb_params)
 	fmgr_info(cb_params->callback, &cb_flinfo);
 
 	InitFunctionCallInfoData(*cb_fcinfo, &cb_flinfo, 1, InvalidOid, NULL, NULL);
+#if PG_VERSION_NUM >= 120000
 	cb_fcinfo->args[0].value = PointerGetDatum(JsonbValueToJsonb(result));
 	cb_fcinfo->args[0].isnull = false;
+#else
+	cb_fcinfo->arg[0] = PointerGetDatum(JsonbValueToJsonb(result));
+	cb_fcinfo->argnull[0] = false;
+#endif
 
 	/* Invoke the callback */
 	FunctionCallInvoke(cb_fcinfo);
@@ -1868,7 +1877,7 @@ text_to_regprocedure(text *proc_signature)
 	fcinfo->args[0].isnull = false;
 #elif PG_VERSION_NUM >= 90600
 	fcinfo->arg[0] = PointerGetDatum(proc_signature);
-	fcinfo.argnull[0] = false;
+	fcinfo->argnull[0] = false;
 #else
 	fcinfo->arg[0] = CStringGetDatum(text_to_cstring(proc_signature));
 	fcinfo.argnull[0] = false;

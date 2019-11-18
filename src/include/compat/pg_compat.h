@@ -818,10 +818,10 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 #define MakeTupleTableSlotCompat(tts_ops) \
 	MakeTupleTableSlot(NULL, (tts_ops))
 #elif PG_VERSION_NUM >= 110000
-#define MakeTupleTableSlotCompat() \
+#define MakeTupleTableSlotCompat(tts_ops) \
 	MakeTupleTableSlot(NULL)
 #else
-#define MakeTupleTableSlotCompat() \
+#define MakeTupleTableSlotCompat(tts_ops) \
 	MakeTupleTableSlot()
 #endif
 
@@ -912,7 +912,7 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 /*
  * GetDefaultTablespace
  */
-#if PG_VERSION_NUM >= 12
+#if PG_VERSION_NUM >= 120000
 #define GetDefaultTablespaceCompat(relpersistence, partitioned) \
 	GetDefaultTablespace((relpersistence), (partitioned))
 #else
@@ -941,14 +941,14 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 #endif
 
 /*
- * nextCopyFrom
+ * nextCopyFrom (WITH_OIDS removed)
  */
 #if PG_VERSION_NUM >= 120000
 #define NextCopyFromCompat(cstate, econtext, values, nulls, tupleOid) \
 	NextCopyFrom((cstate), (econtext), (values), (nulls))
 #else
 #define NextCopyFromCompat(cstate, econtext, values, nulls, tupleOid) \
-	NextCopyFrom((cstate), (econtext), (values), (tupleOid))
+	NextCopyFrom((cstate), (econtext), (values), (nulls), (tupleOid))
 #endif
 
 /*
@@ -999,16 +999,16 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
  *  Common code
  * -------------
  */
-static inline TupleTableSlot *
 #if PG_VERSION_NUM >= 120000
-ExecInitExtraTupleSlotCompat(EState *s, TupleDesc t, const TupleTableSlotOps *tts_ops)
+#define ExecInitExtraTupleSlotCompat(estate, tdesc, tts_ops) \
+	ExecInitExtraTupleSlot((estate), (tdesc), (tts_ops));
 #else
-ExecInitExtraTupleSlotCompat(EState *s, TupleDesc t)
-#endif
+#define ExecInitExtraTupleSlotCompat(estate, tdesc, tts_ops) \
+	ExecInitExtraTupleSlotCompatHorse((estate), (tdesc))
+static inline TupleTableSlot *
+ExecInitExtraTupleSlotCompatHorse(EState *s, TupleDesc t)
 {
-#if PG_VERSION_NUM >= 120000
-	return ExecInitExtraTupleSlot(s,t,tts_ops);
-#elif PG_VERSION_NUM >= 110000
+#if PG_VERSION_NUM >= 110000
 	return ExecInitExtraTupleSlot(s,t);
 #else
 	TupleTableSlot	*res = ExecInitExtraTupleSlot(s);
@@ -1018,6 +1018,7 @@ ExecInitExtraTupleSlotCompat(EState *s, TupleDesc t)
 	return res;
 #endif
 }
+#endif
 
 /* See ExecEvalParamExtern() */
 static inline ParamExternData *

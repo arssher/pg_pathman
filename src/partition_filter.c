@@ -89,7 +89,7 @@ static void prepare_rri_fdw_for_insert(ResultRelInfoHolder *rri_holder,
 
 static Node *fix_returning_list_mutator(Node *node, void *state);
 
-static Index append_rte_to_estate(EState *estate, RangeTblEntry *rte);
+static Index append_rte_to_estate(EState *estate, RangeTblEntry *rte, Relation child_rel);
 static int append_rri_to_estate(EState *estate, ResultRelInfo *rri);
 
 static void pf_memcxt_callback(void *arg);
@@ -186,8 +186,8 @@ init_result_parts_storage(ResultPartsStorage *parts_storage,
 	parts_storage->speculative_inserts = speculative_inserts;
 
 	/*
-	 * This is misnamed a bit: means should
-	 * ResultPartsStorage do ExecCloseIndices on finalization?
+	 * Should ResultPartsStorage do ExecCloseIndices and heap_close on
+	 * finalization?
 	 */
 	parts_storage->close_relations = close_relations;
 	parts_storage->head_open_lock_mode  = RowExclusiveLock;
@@ -219,14 +219,23 @@ fini_result_parts_storage(ResultPartsStorage *parts_storage)
 		if (parts_storage->fini_rri_holder_cb)
 			parts_storage->fini_rri_holder_cb(rri_holder, parts_storage);
 
-		/* Close indices, if ExecEndPlan won't do that for us */
+		/*
+		 * Close indices, unless ExecEndPlan won't do that for us (this is
+		 * is CopyFrom which misses it, not usual executor run, essentially).
+		 * Otherwise, it is always automaticaly closed; in <= 11, relcache
+		 * refs of rris managed heap_open/close on their own, and ExecEndPlan
+		 * closed them directly. Since 9ddef3, relcache management
+		 * of executor was centralized; now rri refs are copies of ones in
+		 * estate->es_relations, which are closed in ExecEndPlan.
+		 * So we push our rel there, and it is also automatically closed.
+		 */
 		if (parts_storage->close_relations)
 		{
 			ExecCloseIndices(rri_holder->result_rel_info);
-		}
-		/* And relation itself */
-		heap_close(rri_holder->result_rel_info->ri_RelationDesc,
+			/* And relation itself */
+			heap_close(rri_holder->result_rel_info->ri_RelationDesc,
 				   NoLock);
+		}
 
 		/* Free conversion-related stuff */
 		if (rri_holder->tuple_map)
@@ -320,7 +329,7 @@ scan_result_parts_storage(ResultPartsStorage *parts_storage, Oid partid)
 		ExecCheckRTPerms(list_make1(child_rte), true);
 
 		/* Append RangeTblEntry to estate->es_range_table */
-		child_rte_idx = append_rte_to_estate(parts_storage->estate, child_rte);
+		child_rte_idx = append_rte_to_estate(parts_storage->estate, child_rte, child_rel);
 
 		/* Create ResultRelInfo for partition */
 		child_result_rel_info = makeNode(ResultRelInfo);
@@ -1167,7 +1176,7 @@ fix_returning_list_mutator(Node *node, void *state)
 
 /* Append RangeTblEntry 'rte' to estate->es_range_table */
 static Index
-append_rte_to_estate(EState *estate, RangeTblEntry *rte)
+append_rte_to_estate(EState *estate, RangeTblEntry *rte, Relation child_rel)
 {
 	estate_mod_data	   *emd_struct = fetch_estate_mod_data(estate);
 
@@ -1195,11 +1204,11 @@ append_rte_to_estate(EState *estate, RangeTblEntry *rte)
 
 	/*
 	 * Also reallocate es_relations, because es_range_table_size defines its
-	 * len.
+	 * len. This also ensures ExecEndPlan will close it.
 	 */
 	estate->es_relations = (Relation *)
 		repalloc(estate->es_relations, estate->es_range_table_size * sizeof(Relation));
-	estate->es_relations[estate->es_range_table_size - 1] = NULL;
+	estate->es_relations[estate->es_range_table_size - 1] = child_rel;
 #endif
 
 	return list_length(estate->es_range_table);

@@ -391,7 +391,11 @@ get_pathman_schema(void)
 		return InvalidOid; /* exit if pg_pathman does not exist */
 
 	ScanKeyInit(&entry[0],
+#if PG_VERSION_NUM >= 120000
 				Anum_pg_extension_oid,
+#else
+				ObjectIdAttributeNumber,
+#endif
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(ext_oid));
 

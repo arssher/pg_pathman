@@ -524,7 +524,7 @@ PathmanCopyFrom(CopyState cstate, Relation parent_rel,
 	myslot = ExecInitExtraTupleSlotCompat(estate, NULL, &TTSOpsHeapTuple);
 	/* Triggers might need a slot as well */
 #if PG_VERSION_NUM < 120000
-	estate->es_trig_tuple_slot = ExecInitExtraTupleSlotCompat(estate, tupDesc);
+	estate->es_trig_tuple_slot = ExecInitExtraTupleSlotCompat(estate, tupDesc, nothing_here);
 #endif
 
 	/* Prepare to catch AFTER triggers. */
